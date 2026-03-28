@@ -6,9 +6,60 @@ import { getDiscountConfig } from '../lib/discountConfig';
 
 const ticketsRouter = Router();
 
+type IdempotencyRecord = {
+  statusCode: number;
+  responseBody: unknown;
+};
+
+async function findIdempotencyRecord(idempotencyKey: string, endpoint: string, userId: number): Promise<IdempotencyRecord | null> {
+  const [rows] = await pool.query(
+    `SELECT status_code, response_body
+     FROM idempotency_keys
+     WHERE idempotency_key = ? AND endpoint = ? AND user_id = ?
+     LIMIT 1`,
+    [idempotencyKey, endpoint, userId],
+  );
+
+  const row = (rows as Array<{ status_code: number; response_body: unknown }>)[0];
+  if (!row) return null;
+
+  return {
+    statusCode: row.status_code,
+    responseBody: row.response_body,
+  };
+}
+
+async function saveIdempotencyRecord(
+  idempotencyKey: string,
+  endpoint: string,
+  userId: number,
+  statusCode: number,
+  responseBody: unknown,
+): Promise<void> {
+  await pool.query(
+    `INSERT IGNORE INTO idempotency_keys (idempotency_key, endpoint, user_id, status_code, response_body)
+     VALUES (?, ?, ?, ?, ?)`,
+    [idempotencyKey, endpoint, userId, statusCode, JSON.stringify(responseBody)],
+  );
+}
+
+async function getOpenShiftId(connection: Awaited<ReturnType<typeof pool.getConnection>>, userId: number): Promise<number | null> {
+  const [rows] = await connection.query(
+    `SELECT id
+     FROM cashier_shifts
+     WHERE user_id = ? AND status = 'open'
+     ORDER BY id DESC
+     LIMIT 1
+     FOR UPDATE`,
+    [userId],
+  );
+
+  return (rows as Array<{ id: number }>)[0]?.id ?? null;
+}
+
 ticketsRouter.get('/tickets', requireAuth, async (_req, res) => {
   const [rows] = await pool.query(
-      `SELECT t.id, t.trip_id, t.seat_number, t.passenger_name, t.passenger_age, t.base_price,
+      `SELECT t.id, t.ticket_folio, t.trip_id, t.seat_number, t.passenger_name, t.passenger_age, t.base_price,
         t.discount_type, t.discount_percent, t.price, t.sold_at, t.user_id, t.status,
             tr.route_id, tr.origin, tr.destination, tr.departure_time
      FROM tickets t
@@ -18,6 +69,7 @@ ticketsRouter.get('/tickets', requireAuth, async (_req, res) => {
 
   const result = (rows as Array<{
     id: number;
+    ticket_folio: number;
     trip_id: number;
     seat_number: number;
     passenger_name: string;
@@ -35,6 +87,7 @@ ticketsRouter.get('/tickets', requireAuth, async (_req, res) => {
     departure_time: string;
   }>).map((item) => ({
     id: item.id.toString(),
+    folio: item.ticket_folio.toString(),
     tripId: item.trip_id.toString(),
     seatNumber: item.seat_number,
     passengerName: item.passenger_name,
@@ -70,6 +123,15 @@ ticketsRouter.post('/tickets', requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
+  const idempotencyKey = req.header('Idempotency-Key')?.trim() ?? '';
+  if (idempotencyKey.length > 0) {
+    const cached = await findIdempotencyRecord(idempotencyKey, 'tickets:create', req.user.id);
+    if (cached) {
+      res.status(cached.statusCode).json(cached.responseBody);
+      return;
+    }
+  }
+
   const normalizedFareType: FareType =
     fareType === 'child' || fareType === 'senior' || fareType === 'disability' ? fareType : 'adult';
 
@@ -92,6 +154,23 @@ ticketsRouter.post('/tickets', requireAuth, async (req: AuthRequest, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+
+    let openShiftId = await getOpenShiftId(connection, req.user.id);
+    if (!openShiftId) {
+      const [shiftInsert] = await connection.query(
+        `INSERT INTO cashier_shifts (user_id, branch_id, terminal_id, opening_cash, expected_cash, opened_at, status)
+         VALUES (?, ?, ?, 0, 0, NOW(), 'open')`,
+        [req.user.id, req.user.branchId, req.user.terminalId],
+      );
+      openShiftId = (shiftInsert as { insertId: number }).insertId;
+
+      await connection.query(
+        `INSERT INTO financial_events (
+          shift_id, user_id, branch_id, terminal_id, event_type, amount, reference_type, reference_id, notes, metadata, created_at
+        ) VALUES (?, ?, ?, ?, 'shift_open', 0, 'shift', ?, 'Apertura automatica por operacion', JSON_OBJECT('autoOpened', true), NOW())`,
+        [openShiftId, req.user.id, req.user.branchId, req.user.terminalId, String(openShiftId)],
+      );
+    }
 
     const [tripRows] = await connection.query(
       'SELECT id, route_id, origin, destination, requires_passenger_name, seat_count, departure_time, price FROM trips WHERE id = ? LIMIT 1 FOR UPDATE',
@@ -170,13 +249,19 @@ ticketsRouter.post('/tickets', requireAuth, async (req: AuthRequest, res) => {
     const discountAmount = roundMoney(basePrice * (discount.percent / 100));
     const finalPrice = roundMoney(basePrice - discountAmount);
 
-    await connection.query(
+    const [folioInsert] = await connection.query('INSERT INTO ticket_folios () VALUES ()');
+    const ticketFolio = (folioInsert as { insertId: number }).insertId;
+
+    const [ticketInsert] = await connection.query(
       `INSERT INTO tickets (
-        trip_id, seat_number, passenger_name, passenger_age, base_price,
-        discount_type, discount_percent, price, sold_at, user_id, status
+        ticket_folio, branch_id, terminal_id, trip_id, seat_number, passenger_name, passenger_age, base_price,
+        discount_type, discount_percent, price, sold_at, user_id, status, idempotency_key
       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'active')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'active', ?)`,
       [
+        ticketFolio,
+        req.user.branchId,
+        req.user.terminalId,
         tripIdNum,
         seatNumber,
         finalPassengerName,
@@ -186,14 +271,49 @@ ticketsRouter.post('/tickets', requireAuth, async (req: AuthRequest, res) => {
         discount.percent,
         finalPrice,
         req.user.id,
+        idempotencyKey.length > 0 ? idempotencyKey : null,
       ],
+    );
+
+    const ticketId = (ticketInsert as { insertId: number }).insertId;
+
+    await connection.query(
+      `INSERT INTO financial_events (
+        shift_id, user_id, branch_id, terminal_id, event_type, amount, reference_type, reference_id, notes, metadata, created_at
+      ) VALUES (?, ?, ?, ?, 'ticket_sale', ?, 'ticket', ?, 'Venta de boleto', JSON_OBJECT('tripId', ?, 'seatNumber', ?, 'ticketFolio', ?), NOW())`,
+      [
+        openShiftId,
+        req.user.id,
+        req.user.branchId,
+        req.user.terminalId,
+        finalPrice,
+        String(ticketId),
+        String(tripIdNum),
+        seatNumber,
+        ticketFolio,
+      ],
+    );
+
+    await connection.query(
+      `UPDATE cashier_shifts
+       SET expected_cash = expected_cash + ?
+       WHERE id = ?`,
+      [finalPrice, openShiftId],
+    );
+
+    await connection.query(
+      `INSERT INTO event_jobs (job_type, payload, status, scheduled_at)
+       VALUES ('ticket_sale_report', JSON_OBJECT('ticketId', ?, 'ticketFolio', ?), 'pending', NOW())`,
+      [ticketId, ticketFolio],
     );
 
     await connection.commit();
 
-    res.status(201).json({
+    const responsePayload = {
       ok: true,
       ticket: {
+        id: ticketId.toString(),
+        folio: ticketFolio.toString(),
         tripId: trip.id.toString(),
         routeId: trip.route_id,
         origin: trip.origin,
@@ -209,7 +329,13 @@ ticketsRouter.post('/tickets', requireAuth, async (req: AuthRequest, res) => {
         discountAmount,
         price: finalPrice,
       },
-    });
+    };
+
+    if (idempotencyKey.length > 0) {
+      await saveIdempotencyRecord(idempotencyKey, 'tickets:create', req.user.id, 201, responsePayload);
+    }
+
+    res.status(201).json(responsePayload);
   } catch (error) {
     await connection.rollback();
     console.error(error);
@@ -219,15 +345,110 @@ ticketsRouter.post('/tickets', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-ticketsRouter.patch('/tickets/:ticketId/cancel', requireAuth, requireAdmin, async (req, res) => {
+ticketsRouter.patch('/tickets/:ticketId/cancel', requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  if (!req.user) {
+    res.status(401).json({ message: 'missing_user' });
+    return;
+  }
+
+  const idempotencyKey = req.header('Idempotency-Key')?.trim() ?? '';
+  if (idempotencyKey.length > 0) {
+    const cached = await findIdempotencyRecord(idempotencyKey, 'tickets:cancel', req.user.id);
+    if (cached) {
+      res.status(cached.statusCode).json(cached.responseBody);
+      return;
+    }
+  }
+
   const ticketId = Number.parseInt(req.params.ticketId, 10);
   if (Number.isNaN(ticketId)) {
     res.status(400).json({ message: 'invalid_ticket_id' });
     return;
   }
 
-  await pool.query("UPDATE tickets SET status = 'cancelled' WHERE id = ?", [ticketId]);
-  res.json({ ok: true });
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [ticketRows] = await connection.query(
+      `SELECT id, price, status
+       FROM tickets
+       WHERE id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [ticketId],
+    );
+
+    const ticket = (ticketRows as Array<{ id: number; price: number; status: 'active' | 'cancelled' }>)[0];
+    if (!ticket) {
+      await connection.rollback();
+      res.status(404).json({ message: 'ticket_not_found' });
+      return;
+    }
+
+    if (ticket.status === 'cancelled') {
+      await connection.rollback();
+      const payload = { ok: true, alreadyCancelled: true };
+      if (idempotencyKey.length > 0) {
+        await saveIdempotencyRecord(idempotencyKey, 'tickets:cancel', req.user.id, 200, payload);
+      }
+      res.json(payload);
+      return;
+    }
+
+    let openShiftId = await getOpenShiftId(connection, req.user.id);
+    if (!openShiftId) {
+      const [shiftInsert] = await connection.query(
+        `INSERT INTO cashier_shifts (user_id, branch_id, terminal_id, opening_cash, expected_cash, opened_at, status)
+         VALUES (?, ?, ?, 0, 0, NOW(), 'open')`,
+        [req.user.id, req.user.branchId, req.user.terminalId],
+      );
+      openShiftId = (shiftInsert as { insertId: number }).insertId;
+
+      await connection.query(
+        `INSERT INTO financial_events (
+          shift_id, user_id, branch_id, terminal_id, event_type, amount, reference_type, reference_id, notes, metadata, created_at
+        ) VALUES (?, ?, ?, ?, 'shift_open', 0, 'shift', ?, 'Apertura automatica por operacion', JSON_OBJECT('autoOpened', true), NOW())`,
+        [openShiftId, req.user.id, req.user.branchId, req.user.terminalId, String(openShiftId)],
+      );
+    }
+
+    await connection.query("UPDATE tickets SET status = 'cancelled' WHERE id = ?", [ticketId]);
+
+    await connection.query(
+      `INSERT INTO financial_events (
+        shift_id, user_id, branch_id, terminal_id, event_type, amount, reference_type, reference_id, notes, metadata, created_at
+      ) VALUES (?, ?, ?, ?, 'ticket_cancel', ?, 'ticket', ?, 'Cancelacion de boleto', JSON_OBJECT('ticketId', ?), NOW())`,
+      [openShiftId, req.user.id, req.user.branchId, req.user.terminalId, -Math.abs(Number(ticket.price)), String(ticketId), String(ticketId)],
+    );
+
+    await connection.query(
+      `UPDATE cashier_shifts
+       SET expected_cash = expected_cash - ?
+       WHERE id = ?`,
+      [Math.abs(Number(ticket.price)), openShiftId],
+    );
+
+    await connection.query(
+      `INSERT INTO event_jobs (job_type, payload, status, scheduled_at)
+       VALUES ('ticket_cancel_report', JSON_OBJECT('ticketId', ?), 'pending', NOW())`,
+      [ticketId],
+    );
+
+    await connection.commit();
+
+    const payload = { ok: true };
+    if (idempotencyKey.length > 0) {
+      await saveIdempotencyRecord(idempotencyKey, 'tickets:cancel', req.user.id, 200, payload);
+    }
+    res.json(payload);
+  } catch (error) {
+    await connection.rollback();
+    console.error(error);
+    res.status(500).json({ message: 'ticket_cancel_failed' });
+  } finally {
+    connection.release();
+  }
 });
 
 export default ticketsRouter;

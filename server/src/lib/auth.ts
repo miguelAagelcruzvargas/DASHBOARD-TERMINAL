@@ -5,7 +5,9 @@ import type { Request, Response, NextFunction } from 'express';
 export type AuthUser = {
   id: number;
   email: string;
-  role: 'admin' | 'seller';
+  role: 'admin' | 'seller' | 'driver';
+  branchId: number;
+  terminalId: number;
 };
 
 export type AuthRequest = Request & {
@@ -33,8 +35,14 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
   }
 
   try {
-    const decoded = jwt.verify(token, getJwtSecret()) as AuthUser;
-    req.user = decoded;
+    const decoded = jwt.verify(token, getJwtSecret()) as Partial<AuthUser>;
+    req.user = {
+      id: Number(decoded.id),
+      email: String(decoded.email ?? ''),
+      role: decoded.role === 'admin' || decoded.role === 'driver' ? decoded.role : 'seller',
+      branchId: Number(decoded.branchId ?? 1),
+      terminalId: Number(decoded.terminalId ?? 1),
+    };
     next();
   } catch (_error) {
     res.status(401).json({ message: 'invalid_token' });

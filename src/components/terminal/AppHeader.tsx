@@ -3,22 +3,28 @@ import { ViewMode, Branding } from './config';
 
 type Props = {
   view: ViewMode;
+  canAccessSalesViews: boolean;
   canOpenAdminGate: boolean;
+  canOpenDriverView: boolean;
   userEmail?: string | null;
   branding: Branding;
   onGoSeller: () => void;
   onGoSales: () => void;
+  onGoDriver: () => void;
   onOpenAdmin: () => void;
   onLogout: () => void;
 };
 
 export function AppHeader({
   view,
+  canAccessSalesViews,
   canOpenAdminGate,
+  canOpenDriverView,
   userEmail,
   branding,
   onGoSeller,
   onGoSales,
+  onGoDriver,
   onOpenAdmin,
   onLogout,
 }: Props) {
@@ -37,12 +43,21 @@ export function AppHeader({
 
         <div className="col-span-2 flex w-full items-center justify-between gap-2 lg:col-auto lg:w-auto lg:justify-end">
           <div className="flex min-w-0 flex-1 items-center gap-1 rounded-xl border border-black/10 bg-white p-1 lg:flex-none">
-            <button onClick={onGoSeller} className={`min-w-0 flex-1 rounded-lg px-2.5 py-2 text-[10px] font-black uppercase tracking-[0.08em] transition sm:px-3 sm:text-[11px] ${view === 'seller' ? 'bg-[#0f7666] text-white' : 'text-[#475569] hover:bg-[#f1f5f9]'}`}>
-            Venta
-            </button>
-            <button onClick={onGoSales} className={`min-w-0 flex-1 rounded-lg px-2.5 py-2 text-[10px] font-black uppercase tracking-[0.08em] transition sm:px-3 sm:text-[11px] ${view === 'sales' ? 'bg-[#0f7666] text-white' : 'text-[#475569] hover:bg-[#f1f5f9]'}`}>
-            Historial
-            </button>
+            {canAccessSalesViews && (
+              <button onClick={onGoSeller} className={`min-w-0 flex-1 rounded-lg px-2.5 py-2 text-[10px] font-black uppercase tracking-[0.08em] transition sm:px-3 sm:text-[11px] ${view === 'seller' ? 'bg-[#0f7666] text-white' : 'text-[#475569] hover:bg-[#f1f5f9]'}`}>
+              Venta
+              </button>
+            )}
+            {canAccessSalesViews && (
+              <button onClick={onGoSales} className={`min-w-0 flex-1 rounded-lg px-2.5 py-2 text-[10px] font-black uppercase tracking-[0.08em] transition sm:px-3 sm:text-[11px] ${view === 'sales' ? 'bg-[#0f7666] text-white' : 'text-[#475569] hover:bg-[#f1f5f9]'}`}>
+              Historial
+              </button>
+            )}
+            {canOpenDriverView && (
+              <button onClick={onGoDriver} className={`min-w-0 flex-1 rounded-lg px-2.5 py-2 text-[10px] font-black uppercase tracking-[0.08em] transition sm:px-3 sm:text-[11px] ${view === 'driver' ? 'bg-[#0f7666] text-white' : 'text-[#475569] hover:bg-[#f1f5f9]'}`}>
+              Chofer
+              </button>
+            )}
           </div>
 
           <div className="flex shrink-0 items-center gap-2">

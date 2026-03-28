@@ -6,10 +6,12 @@ import rateLimit from 'express-rate-limit';
 import authRouter from './routes/auth';
 import expensesRouter from './routes/expenses';
 import healthRouter from './routes/health';
+import operationsRouter from './routes/operations';
 import settingsRouter from './routes/settings';
 import tripsRouter from './routes/trips';
 import ticketsRouter from './routes/tickets';
 import { ensureDatabaseSchema } from './lib/db';
+import { observabilityMiddleware } from './lib/observability';
 
 dotenv.config();
 
@@ -27,6 +29,7 @@ app.use(
   }),
 );
 app.use(express.json({ limit: '1mb' }));
+app.use(observabilityMiddleware);
 
 app.use('/api', healthRouter);
 app.use('/api', authRouter);
@@ -34,6 +37,7 @@ app.use('/api', settingsRouter);
 app.use('/api', tripsRouter);
 app.use('/api', ticketsRouter);
 app.use('/api', expensesRouter);
+app.use('/api', operationsRouter);
 
 async function startServer() {
   await ensureDatabaseSchema();

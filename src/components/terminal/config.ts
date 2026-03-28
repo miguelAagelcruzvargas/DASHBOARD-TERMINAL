@@ -1,7 +1,7 @@
 import { VehicleType } from '../../types';
 
-export type ViewMode = 'seller' | 'sales' | 'admin';
-export type AdminTab = 'dashboard' | 'create' | 'trips' | 'sales' | 'expenses' | 'branding';
+export type ViewMode = 'seller' | 'sales' | 'driver' | 'admin';
+export type AdminTab = 'dashboard' | 'create' | 'trips' | 'sales' | 'expenses' | 'staff' | 'branding';
 
 export type Branding = {
   companyName: string;

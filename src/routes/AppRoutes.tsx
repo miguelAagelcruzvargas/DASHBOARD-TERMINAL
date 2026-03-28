@@ -8,6 +8,7 @@ export default function AppRoutes() {
       <Route path="/login" element={<TerminalSystemPage />} />
       <Route path="/pos" element={<TerminalSystemPage />} />
       <Route path="/ventas" element={<TerminalSystemPage />} />
+      <Route path="/chofer" element={<TerminalSystemPage />} />
       <Route path="/admin" element={<TerminalSystemPage />} />
       <Route path="*" element={<Navigate to="/pos" replace />} />
     </Routes>

@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from '
 import L from 'leaflet';
 import { AlertTriangle, BusFront, CalendarDays, ChartColumn, CreditCard, Landmark, Plus, Receipt, Ticket as TicketIcon, Trash2, Wallet } from 'lucide-react';
 import { MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet';
-import { DiscountConfig, Expense, ExpenseCategory, SeatInfo, Ticket, Trip, VehicleType } from '../../types';
+import { CashShift, DiscountConfig, EmployeeSchedule, EmployeeUser, Expense, ExpenseCategory, OperationsContextUnit, OperationsKpi, SeatInfo, Ticket, Trip, VehicleRecord, VehicleType } from '../../types';
 import { AdminTab, Branding, BTN_PRIMARY, getVehicleTypeLabel, INPUT_CLASS, VEHICLE_TYPE_OPTIONS } from './config';
+import { StaffManagementPanel } from './StaffManagementPanel';
 
 type RouteOption = {
   key: string;
@@ -89,6 +90,7 @@ const ADMIN_TABS: Array<{ key: AdminTab; label: string }> = [
   { key: 'trips', label: 'Trips' },
   { key: 'sales', label: 'Sales' },
   { key: 'expenses', label: 'Gastos' },
+  { key: 'staff', label: 'Personal y Sucursales' },
   { key: 'branding', label: 'Branding' },
 ];
 
@@ -160,6 +162,65 @@ type Props = {
   totalSales: number;
   tickets: Ticket[];
   expenses: Expense[];
+  currentShift: CashShift | null;
+  shiftHistory: CashShift[];
+  operationsKpi: OperationsKpi | null;
+  operationsContext: OperationsContextUnit[];
+  selectedBranchId: string;
+  setSelectedBranchId: (value: string) => void;
+  selectedTerminalId: string;
+  setSelectedTerminalId: (value: string) => void;
+  employeeUsers: EmployeeUser[];
+  employeeSchedules: EmployeeSchedule[];
+  newEmployee: { fullName: string; email: string; password: string; role: 'admin' | 'seller' | 'driver'; branchId: string; terminalId: string };
+  setNewEmployee: (value: { fullName: string; email: string; password: string; role: 'admin' | 'seller' | 'driver'; branchId: string; terminalId: string }) => void;
+  createEmployee: () => void;
+  toggleEmployeeStatus: (employee: EmployeeUser) => void;
+  newSchedule: { userId: string; branchId: string; terminalId: string; dayOfWeek: number; startTime: string; endTime: string; notes: string };
+  setNewSchedule: (value: { userId: string; branchId: string; terminalId: string; dayOfWeek: number; startTime: string; endTime: string; notes: string }) => void;
+  createEmployeeSchedule: () => void;
+  deleteEmployeeSchedule: (scheduleId: string) => void;
+  newBranch: { code: string; name: string };
+  setNewBranch: (value: { code: string; name: string }) => void;
+  createBranch: () => void;
+  newTerminal: { branchId: string; code: string; name: string };
+  setNewTerminal: (value: { branchId: string; code: string; name: string }) => void;
+  createTerminal: () => void;
+  vehicles: VehicleRecord[];
+  newVehicle: {
+    branchId: string;
+    terminalId: string;
+    plateNumber: string;
+    internalCode: string;
+    vehicleType: VehicleType;
+    capacity: number;
+    operationalStatus: 'active' | 'maintenance' | 'inactive';
+    photoUrl: string;
+    notes: string;
+    lastInspectionAt: string;
+  };
+  setNewVehicle: (value: {
+    branchId: string;
+    terminalId: string;
+    plateNumber: string;
+    internalCode: string;
+    vehicleType: VehicleType;
+    capacity: number;
+    operationalStatus: 'active' | 'maintenance' | 'inactive';
+    photoUrl: string;
+    notes: string;
+    lastInspectionAt: string;
+  }) => void;
+  createVehicle: () => void;
+  updateVehicleStatus: (vehicleId: string, operationalStatus: 'active' | 'maintenance' | 'inactive') => void;
+  shiftOpeningCash: number;
+  setShiftOpeningCash: (value: number) => void;
+  shiftClosingCash: number;
+  setShiftClosingCash: (value: number) => void;
+  shiftClosingNote: string;
+  setShiftClosingNote: (value: string) => void;
+  openShift: () => void;
+  closeShift: () => void;
   trips: Trip[];
   newTrip: { routeId: string; origin: string; destination: string; requiresPassengerName: boolean; vehicleType: VehicleType; seatCount: number; price: number; departureTime: string };
   setNewTrip: (next: { routeId: string; origin: string; destination: string; requiresPassengerName: boolean; vehicleType: VehicleType; seatCount: number; price: number; departureTime: string }) => void;
@@ -197,6 +258,43 @@ export function AdminView({
   totalSales,
   tickets,
   expenses,
+  currentShift,
+  shiftHistory,
+  operationsKpi,
+  operationsContext,
+  selectedBranchId,
+  setSelectedBranchId,
+  selectedTerminalId,
+  setSelectedTerminalId,
+  employeeUsers,
+  employeeSchedules,
+  newEmployee,
+  setNewEmployee,
+  createEmployee,
+  toggleEmployeeStatus,
+  newSchedule,
+  setNewSchedule,
+  createEmployeeSchedule,
+  deleteEmployeeSchedule,
+  newBranch,
+  setNewBranch,
+  createBranch,
+  newTerminal,
+  setNewTerminal,
+  createTerminal,
+  vehicles,
+  newVehicle,
+  setNewVehicle,
+  createVehicle,
+  updateVehicleStatus,
+  shiftOpeningCash,
+  setShiftOpeningCash,
+  shiftClosingCash,
+  setShiftClosingCash,
+  shiftClosingNote,
+  setShiftClosingNote,
+  openShift,
+  closeShift,
   trips,
   newTrip,
   setNewTrip,
@@ -545,6 +643,41 @@ export function AdminView({
     };
   }, [dashboardMetrics.soldMonth, expenses]);
 
+  const branchOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; code: string }>();
+    operationsContext.forEach((item) => {
+      if (!map.has(item.branchId)) {
+        map.set(item.branchId, { id: item.branchId, name: item.branchName, code: item.branchCode });
+      }
+    });
+    return Array.from(map.values()).sort((left, right) => left.name.localeCompare(right.name));
+  }, [operationsContext]);
+
+  const terminalOptions = useMemo(() => {
+    return operationsContext
+      .filter((item) => selectedBranchId === 'all' || item.branchId === selectedBranchId)
+      .map((item) => ({ id: item.terminalId, name: item.terminalName, code: item.terminalCode, branchId: item.branchId }));
+  }, [operationsContext, selectedBranchId]);
+
+  const visibleTerminalOptions = useMemo(() => {
+    return terminalOptions.filter((item) => selectedBranchId === 'all' || item.branchId === selectedBranchId);
+  }, [terminalOptions, selectedBranchId]);
+
+  const branchVisualCards = useMemo(() => {
+    return branchOptions.map((branch) => {
+      const branchTerminals = operationsContext.filter((item) => item.branchId === branch.id);
+      const branchShifts = shiftHistory.filter((shift) => shift.branchId === branch.id);
+      const branchOpenShifts = branchShifts.filter((shift) => shift.status === 'open').length;
+      const branchClosedShifts = branchShifts.filter((shift) => shift.status === 'closed').length;
+      return {
+        ...branch,
+        terminals: branchTerminals.length,
+        openShifts: branchOpenShifts,
+        closedShifts: branchClosedShifts,
+      };
+    });
+  }, [branchOptions, operationsContext, shiftHistory]);
+
   return (
     <section className="grid min-h-[calc(100vh-7.3rem)] grid-cols-1 gap-3 xl:grid-cols-[216px_minmax(0,1fr)] 2xl:grid-cols-[228px_minmax(0,1fr)]">
       <aside className="rounded-2xl border border-black/5 bg-white p-3 shadow-sm xl:sticky xl:top-[5.5rem] xl:max-h-[calc(100vh-6.4rem)] xl:overflow-hidden">
@@ -562,6 +695,64 @@ export function AdminView({
       <div className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm sm:p-5 lg:p-5 xl:min-h-[calc(100vh-6.4rem)] xl:p-6">
         {adminTab === 'dashboard' && (
           <div className="space-y-6">
+            <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Multisucursal</p>
+                  <h3 className="mt-1 text-xl font-black tracking-tight text-slate-900">Vista por sucursal y terminal</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAdminTab('staff')}
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black uppercase tracking-[0.1em] text-emerald-700"
+                >
+                  Gestionar sucursales
+                </button>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Sucursal</label>
+                  <select
+                    value={selectedBranchId}
+                    onChange={(event) => setSelectedBranchId(event.target.value)}
+                    className={INPUT_CLASS}
+                  >
+                    <option value="all">Todas las sucursales</option>
+                    {branchOptions.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Terminal</label>
+                  <select
+                    value={selectedTerminalId}
+                    onChange={(event) => setSelectedTerminalId(event.target.value)}
+                    className={INPUT_CLASS}
+                  >
+                    <option value="all">Todas las terminales</option>
+                    {visibleTerminalOptions.map((terminal) => (
+                      <option key={terminal.id} value={terminal.id}>
+                        {terminal.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {branchVisualCards.map((branch) => (
+                  <div key={branch.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">{branch.code}</p>
+                    <p className="mt-1 text-sm font-black text-slate-900">{branch.name}</p>
+                    <p className="mt-2 text-xs text-slate-500">{branch.terminals} terminales · {branch.openShifts} turnos abiertos · {branch.closedShifts} cerrados</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 gap-3 2xl:grid-cols-[1.25fr_0.95fr]">
               <div className="rounded-[1.75rem] border border-emerald-100 bg-[linear-gradient(135deg,#f0fdf4_0%,#ecfeff_100%)] p-5 shadow-[0_18px_40px_rgba(15,118,110,0.08)]">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -669,6 +860,167 @@ export function AdminView({
                   </div>
                 </div>
                 <p className="mt-3 text-xs text-slate-500">{dashboardMetrics.soldYear.length} boletos vendidos y {formatCurrency(dashboardMetrics.soldYear.reduce((sum, item) => sum + item.price, 0))} acumulados.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Caja por turno</p>
+                    <h3 className="mt-1 text-xl font-black tracking-tight text-slate-900">Apertura, cierre y diferencia real</h3>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-[0.12em] ${currentShift ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                    {currentShift ? 'Turno abierto' : 'Sin turno activo'}
+                  </span>
+                </div>
+
+                {currentShift ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl bg-slate-50 p-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Apertura</p>
+                        <p className="mt-1 text-xl font-black text-slate-900">{formatCurrency(currentShift.openingCash)}</p>
+                      </div>
+                      <div className="rounded-xl bg-slate-50 p-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Esperado</p>
+                        <p className="mt-1 text-xl font-black text-slate-900">{formatCurrency(currentShift.expectedCash)}</p>
+                      </div>
+                      <div className="rounded-xl bg-slate-50 p-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Empleado</p>
+                        <p className="mt-1 text-sm font-black text-slate-900">{currentShift.userEmail}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
+                      <div className="space-y-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={shiftClosingCash}
+                          onChange={(event) => setShiftClosingCash(Number.parseFloat(event.target.value || '0'))}
+                          className={INPUT_CLASS}
+                          placeholder="Efectivo real al cierre"
+                        />
+                        <textarea
+                          value={shiftClosingNote}
+                          onChange={(event) => setShiftClosingNote(event.target.value)}
+                          className={`${INPUT_CLASS} min-h-20 resize-y`}
+                          placeholder="Observacion para el siguiente turno o admin"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          requestConfirmation({
+                            title: 'Cerrar turno',
+                            message: `Se cerrara el turno con efectivo reportado de ${formatCurrency(shiftClosingCash)}.`,
+                            actionLabel: 'Cerrar turno',
+                            onConfirm: closeShift,
+                          })
+                        }
+                        className={`${BTN_PRIMARY} justify-center px-5 py-3`}
+                      >
+                        Cerrar turno
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={shiftOpeningCash}
+                      onChange={(event) => setShiftOpeningCash(Number.parseFloat(event.target.value || '0'))}
+                      className={INPUT_CLASS}
+                      placeholder="Monto de apertura"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        requestConfirmation({
+                          title: 'Abrir turno',
+                          message: `Se abrira turno con caja inicial de ${formatCurrency(shiftOpeningCash)}.`,
+                          actionLabel: 'Abrir turno',
+                          onConfirm: openShift,
+                        })
+                      }
+                      className={`${BTN_PRIMARY} justify-center px-5 py-3`}
+                    >
+                      Abrir turno
+                    </button>
+                  </div>
+                )}
+
+                <div className="mt-4 text-xs text-slate-500">
+                  {currentShift
+                    ? `Sucursal: ${currentShift.branchName} · Terminal: ${currentShift.terminalName} · Apertura: ${formatDateTime(currentShift.openedAt)}`
+                    : 'Abre turno para registrar corte de caja por empleado.'}
+                </div>
+              </div>
+
+              <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Utilidad neta mensual</p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-xl bg-emerald-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700">Ingresos</p>
+                    <p className="mt-1 text-lg font-black text-emerald-900">{formatCurrency(operationsKpi?.revenueMonth ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl bg-amber-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700">Descuentos</p>
+                    <p className="mt-1 text-lg font-black text-amber-900">{formatCurrency(operationsKpi?.discountsMonth ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl bg-rose-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-rose-700">Cancelaciones</p>
+                    <p className="mt-1 text-lg font-black text-rose-900">{formatCurrency(operationsKpi?.cancelLossMonth ?? 0)}</p>
+                  </div>
+                  <div className="rounded-xl bg-sky-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-sky-700">Gastos</p>
+                    <p className="mt-1 text-lg font-black text-sky-900">{formatCurrency(operationsKpi?.expensesMonth ?? 0)}</p>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700">Utilidad neta</p>
+                  <p className="mt-1 text-2xl font-black text-emerald-900">{formatCurrency(operationsKpi?.netUtilityMonth ?? 0)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Cortes recientes</p>
+                  <h3 className="mt-1 text-xl font-black tracking-tight text-slate-900">Turnos y diferencias por empleado</h3>
+                </div>
+              </div>
+              <div className="mt-4 space-y-2">
+                {shiftHistory.length > 0 ? (
+                  shiftHistory.map((shift) => (
+                    <div key={shift.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-black text-slate-900">{shift.userEmail}</p>
+                        <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${shift.status === 'open' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'}`}>
+                          {shift.status === 'open' ? 'Abierto' : 'Cerrado'}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">{shift.branchName} · {shift.terminalName}</p>
+                      {shift.openingNote && <p className="mt-1 text-xs text-slate-600">Inicio: {shift.openingNote}</p>}
+                      {shift.closingNote && <p className="mt-1 text-xs text-amber-700">Entrega: {shift.closingNote}</p>}
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                        <div><span className="font-black text-slate-500">Apertura:</span> {formatCurrency(shift.openingCash)}</div>
+                        <div><span className="font-black text-slate-500">Esperado:</span> {formatCurrency(shift.expectedCash)}</div>
+                        <div><span className="font-black text-slate-500">Cierre:</span> {formatCurrency(shift.closingCash ?? 0)}</div>
+                        <div><span className="font-black text-slate-500">Diferencia:</span> {formatCurrency(shift.difference ?? 0)}</div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+                    Aun no hay turnos registrados.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1192,6 +1544,38 @@ export function AdminView({
               </div>
             </div>
           </div>
+        )}
+
+        {adminTab === 'staff' && (
+          <StaffManagementPanel
+            selectedBranchId={selectedBranchId}
+            setSelectedBranchId={setSelectedBranchId}
+            selectedTerminalId={selectedTerminalId}
+            setSelectedTerminalId={setSelectedTerminalId}
+            operationsContext={operationsContext}
+            employeeUsers={employeeUsers}
+            employeeSchedules={employeeSchedules}
+            newEmployee={newEmployee}
+            setNewEmployee={setNewEmployee}
+            createEmployee={createEmployee}
+            toggleEmployeeStatus={toggleEmployeeStatus}
+            newSchedule={newSchedule}
+            setNewSchedule={setNewSchedule}
+            createEmployeeSchedule={createEmployeeSchedule}
+            deleteEmployeeSchedule={deleteEmployeeSchedule}
+            newBranch={newBranch}
+            setNewBranch={setNewBranch}
+            createBranch={createBranch}
+            newTerminal={newTerminal}
+            setNewTerminal={setNewTerminal}
+            createTerminal={createTerminal}
+            vehicles={vehicles}
+            newVehicle={newVehicle}
+            setNewVehicle={setNewVehicle}
+            createVehicle={createVehicle}
+            updateVehicleStatus={updateVehicleStatus}
+            requestConfirmation={requestConfirmation}
+          />
         )}
 
         {adminTab === 'branding' && (

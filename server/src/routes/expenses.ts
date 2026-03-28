@@ -94,22 +94,75 @@ expensesRouter.post('/expenses', requireAuth, requireAdmin, async (req: AuthRequ
   const normalizedDescription = (description ?? '').trim();
   const normalizedNotes = (notes ?? '').trim();
 
-  const [result] = await pool.query(
-    `INSERT INTO expenses (category, title, description, amount, expense_date, payment_method, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      category,
-      normalizedTitle,
-      normalizedDescription || null,
-      normalizedAmount,
-      normalizedExpenseDate,
-      normalizedPaymentMethod,
-      normalizedNotes || null,
-      req.user.id,
-    ],
-  );
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
 
-  res.status(201).json({ ok: true, id: String((result as { insertId: number }).insertId) });
+    const [result] = await connection.query(
+      `INSERT INTO expenses (branch_id, terminal_id, category, title, description, amount, expense_date, payment_method, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        req.user.branchId,
+        req.user.terminalId,
+        category,
+        normalizedTitle,
+        normalizedDescription || null,
+        normalizedAmount,
+        normalizedExpenseDate,
+        normalizedPaymentMethod,
+        normalizedNotes || null,
+        req.user.id,
+      ],
+    );
+
+    const expenseId = (result as { insertId: number }).insertId;
+
+    const [shiftRows] = await connection.query(
+      `SELECT id FROM cashier_shifts WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1`,
+      [req.user.id],
+    );
+    const openShiftId = (shiftRows as Array<{ id: number }>)[0]?.id ?? null;
+
+    await connection.query(
+      `INSERT INTO financial_events (
+        shift_id, user_id, branch_id, terminal_id, event_type, amount, reference_type, reference_id, notes, metadata, created_at
+      ) VALUES (?, ?, ?, ?, 'expense', ?, 'expense', ?, 'Registro de gasto', JSON_OBJECT('category', ?, 'paymentMethod', ?), NOW())`,
+      [
+        openShiftId,
+        req.user.id,
+        req.user.branchId,
+        req.user.terminalId,
+        -Math.abs(normalizedAmount),
+        String(expenseId),
+        category,
+        normalizedPaymentMethod,
+      ],
+    );
+
+    if (openShiftId) {
+      await connection.query(
+        `UPDATE cashier_shifts
+         SET expected_cash = expected_cash - ?
+         WHERE id = ?`,
+        [Math.abs(normalizedAmount), openShiftId],
+      );
+    }
+
+    await connection.query(
+      `INSERT INTO event_jobs (job_type, payload, status, scheduled_at)
+       VALUES ('expense_report', JSON_OBJECT('expenseId', ?), 'pending', NOW())`,
+      [expenseId],
+    );
+
+    await connection.commit();
+    res.status(201).json({ ok: true, id: String(expenseId) });
+  } catch (error) {
+    await connection.rollback();
+    console.error(error);
+    res.status(500).json({ message: 'expense_create_failed' });
+  } finally {
+    connection.release();
+  }
 });
 
 expensesRouter.delete('/expenses/:expenseId', requireAuth, requireAdmin, async (req, res) => {
