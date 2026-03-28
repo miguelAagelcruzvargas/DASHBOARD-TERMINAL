@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "Trip": {
+      "title": "Trip",
+      "description": "A specific bus trip with a route and seat availability.",
+      "type": "object",
+      "properties": {
+        "routeId": { "type": "string", "description": "ID of the route" },
+        "origin": { "type": "string", "description": "Starting point" },
+        "destination": { "type": "string", "description": "End point" },
+        "departureTime": { "type": "string", "format": "date-time", "description": "When the bus leaves" },
+        "arrivalTime": { "type": "string", "format": "date-time", "description": "When the bus arrives" },
+        "price": { "type": "number", "description": "Ticket price" },
+        "status": { "type": "string", "enum": ["scheduled", "in-transit", "completed"], "description": "Current status of the trip" },
+        "seats": { "type": "object", "description": "Map of seat numbers to their status" }
+      },
+      "required": ["routeId", "origin", "destination", "departureTime", "arrivalTime", "price", "status", "seats"]
+    },
+    "Ticket": {
+      "title": "Ticket",
+      "description": "A ticket sold for a specific trip and seat.",
+      "type": "object",
+      "properties": {
+        "tripId": { "type": "string", "description": "ID of the trip" },
+        "seatNumber": { "type": "integer", "description": "Seat number" },
+        "passengerName": { "type": "string", "description": "Name of the passenger" },
+        "price": { "type": "number", "description": "Price paid" },
+        "soldAt": { "type": "string", "format": "date-time", "description": "When the ticket was sold" },
+        "uid": { "type": "string", "description": "User ID of the seller" }
+      },
+      "required": ["tripId", "seatNumber", "passengerName", "price", "soldAt", "uid"]
+    }
+  },
+  "firestore": {
+    "/trips": {
+      "schema": "Trip",
+      "description": "Collection of available bus trips"
+    },
+    "/tickets": {
+      "schema": "Ticket",
+      "description": "Collection of sold tickets"
+    }
+  }
+}

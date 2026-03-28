@@ -1,0 +1,16 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="18" fill="url(#bg)" />
+  <path d="M18 22C18 18.6863 20.6863 16 24 16H40C43.3137 16 46 18.6863 46 22V38C46 41.3137 43.3137 44 40 44H24C20.6863 44 18 41.3137 18 38V22Z" fill="white" fill-opacity="0.92"/>
+  <path d="M22 24C22 22.8954 22.8954 22 24 22H40C41.1046 22 42 22.8954 42 24V31H22V24Z" fill="#0F7666"/>
+  <circle cx="26" cy="46" r="4" fill="#0F172A"/>
+  <circle cx="38" cy="46" r="4" fill="#0F172A"/>
+  <rect x="25" y="35" width="5" height="6" rx="1" fill="#CFFAFE"/>
+  <rect x="34" y="35" width="5" height="6" rx="1" fill="#CFFAFE"/>
+  <path d="M14 50C14 48.8954 14.8954 48 16 48H48C49.1046 48 50 48.8954 50 50V51C50 52.1046 49.1046 53 48 53H16C14.8954 53 14 52.1046 14 51V50Z" fill="#0F7666" fill-opacity="0.18"/>
+  <defs>
+    <linearGradient id="bg" x1="8" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F7666"/>
+      <stop offset="1" stop-color="#14B8A6"/>
+    </linearGradient>
+  </defs>
+</svg>

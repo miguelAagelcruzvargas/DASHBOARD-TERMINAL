@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (request.auth.token.email == "isc20350265@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isValidTrip(data) {
+      return data.origin is string && data.origin.size() > 0 &&
+             data.destination is string && data.destination.size() > 0 &&
+             data.price is number && data.price >= 0 &&
+             data.status in ['scheduled', 'in-transit', 'completed'];
+    }
+
+    function isValidTicket(data) {
+      return data.tripId is string &&
+             data.seatNumber is int && data.seatNumber > 0 &&
+             data.passengerName is string && data.passengerName.size() > 0 &&
+             data.price is number && data.price >= 0 &&
+             data.uid == request.auth.uid;
+    }
+
+    // Trips Collection
+    match /trips/{tripId} {
+      allow read: if true; // Publicly viewable routes
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Tickets Collection
+    match /tickets/{ticketId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidTicket(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    // Users Collection (for roles)
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}

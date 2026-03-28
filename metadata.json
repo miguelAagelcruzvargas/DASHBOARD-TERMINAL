@@ -1,0 +1,5 @@
+{
+  "name": "Terminal de Autobuses AU",
+  "description": "Sistema de venta de boletos con gestión de asientos en tiempo real y simulación de rutas.",
+  "requestFramePermissions": []
+}
