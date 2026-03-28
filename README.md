@@ -209,3 +209,23 @@ Proyecto interno de operación de terminal. Define aquí la licencia final si pu
 ### Backlog pendiente (no prioritario por ahora)
 
 Todas las demás mejoras propuestas quedan en estado pendiente hasta terminar las dos prioridades activas.
+
+#### 15.1 Integridad financiera y trazabilidad
+
+1. Folio unico consecutivo de boleto no editable.
+2. Registro contable por evento: venta, cancelacion, reembolso, gasto.
+3. Caja por turno con apertura/cierre y diferencia esperada vs real.
+4. Reporte de utilidad neta automatica: ingresos - descuentos - cancelaciones - gastos.
+
+#### 15.2 Concurrencia y consistencia
+
+1. Lock transaccional robusto por asiento para cubrir edge cases.
+2. Idempotencia en compra/cancelacion para evitar doble cargo por reintentos.
+3. Cola de eventos para tareas pesadas: reportes, exportaciones, cierre de dia.
+
+#### 15.3 Observabilidad profesional
+
+1. Logging estructurado con correlation id por request.
+2. Metricas tecnicas: latencia, errores 4xx/5xx y throughput.
+3. Alertas (email/Slack) para caidas, error rate alto y DB lenta.
+4. Dashboard operativo de salud del sistema.
