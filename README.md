@@ -198,3 +198,14 @@ npm run dev:server
 ## 14) Licencia
 
 Proyecto interno de operación de terminal. Define aquí la licencia final si publicarás el código para terceros.
+
+## 15) Roadmap priorizado
+
+### Prioridad activa (aprobada)
+
+1. Multi-sucursal y multi-terminal.
+2. API pública para integraciones externas.
+
+### Backlog pendiente (no prioritario por ahora)
+
+Todas las demás mejoras propuestas quedan en estado pendiente hasta terminar las dos prioridades activas.
